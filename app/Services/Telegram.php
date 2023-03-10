@@ -2,23 +2,25 @@
 
 namespace App\Services;
 
+use App\DTO\TomTomDTO;
 use App\Models\User;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Telegram\Bot\Api;
 use Telegram\Bot\Exceptions\TelegramSDKException;
 
 class Telegram
 {
-    private Api $apiClient;
+    private Api $tgApiClient;
+    private TomTomApiClient $tomTomApiClient;
 
     /**
      * @throws TelegramSDKException
      */
     public function __construct()
     {
-        $this->apiClient = new Api(env('TG_BOT_TOKEN'));
+        $this->tgApiClient = new Api(env('TG_BOT_TOKEN'));
+        $this->tomTomApiClient = new TomTomApiClient(env('TOM_TOM_API_KEY'));
     }
 
     /**
@@ -27,11 +29,11 @@ class Telegram
      */
     public function handleWebhook(): void
     {
-        $updates = $this->apiClient->getWebhookUpdate();
+        $updates = $this->tgApiClient->getWebhookUpdate();
 //        $callbackQuery = $updates->callbackQuery;
 //
 //        if (!empty($callbackQuery)) {
-//            $this->apiClient->answerCallbackQuery([
+//            $this->tgApiClient->answerCallbackQuery([
 //                'callback_query_id' => $callbackQuery->id,
 //                'text' => ''
 //            ]);
@@ -64,8 +66,6 @@ class Telegram
                 'longitude' => $longitude
             ]);
             $this->sendTextMessage($chatId, "Ваши координаты широота = $latitude, долгота = $longitude.");
-            Log::info($updates);
-
         } elseif ($updates->getMessage()->text === 'Начать поиск') {
             if (User::all()->where('tg_id', $tgUserId)->value('latitude') != '') {
                 $this->setStage($chatId, 'search');
@@ -113,9 +113,6 @@ class Telegram
 
                 break;
         }
-
-        Log::info($updates);
-        Log::debug(json_encode(Cache::get("$chatId-stage")));
     }
 
     /**
@@ -124,10 +121,10 @@ class Telegram
      */
     public function setWebhook(): void
     {
-        $tgBotToken = $this->apiClient->getAccessToken();
+        $tgBotToken = $this->tgApiClient->getAccessToken();
         $appUrl = env('APP_URL');
 
-        $this->apiClient->setWebhook([
+        $this->tgApiClient->setWebhook([
             'url' => "$appUrl/api/webhook/$tgBotToken",
             'drop_pending_updates' => true
         ]);
@@ -141,7 +138,7 @@ class Telegram
     private function sendTextMessage(int $chatId, string $message): void
     {
         try {
-            $this->apiClient->sendMessage([
+            $this->tgApiClient->sendMessage([
                 'chat_id' => $chatId,
                 'text' => $message
             ]);
@@ -161,7 +158,7 @@ class Telegram
         try {
             if ($resultArray['summary']['totalResults'] === 0) {
 
-                $this->apiClient->sendMessage([
+                $this->tgApiClient->sendMessage([
                     'chat_id' => $chatId,
                     'text' => "Результат поиска не найден, вернитесь в главное меню для изменения данных поиска"
                 ]);
@@ -172,7 +169,7 @@ class Telegram
 
                     $name = $result['poi']['name'];
                     $distance = intval($result['dist']);
-                    $this->apiClient->sendMessage([
+                    $this->tgApiClient->sendMessage([
                         'chat_id' => $chatId,
                         'text' => "Название: $name \n Расстояние до места: $distance метров \n Номер телефона: $phone",
                         'parse_mode' => 'html',
@@ -191,7 +188,7 @@ class Telegram
     private function sendMainButtons(int $chatId): void
     {
         try {
-            $this->apiClient->sendMessage([
+            $this->tgApiClient->sendMessage([
                 'chat_id' => $chatId,
                 'text' => 'Здравствуйте , Я бот который поможет вам найти любое место в нужном вам радиусе',
                 'reply_markup' => json_encode([
@@ -220,7 +217,7 @@ class Telegram
     private function sendStagesButton($chatId): void
     {
         try {
-            $this->apiClient->sendMessage([
+            $this->tgApiClient->sendMessage([
                 'chat_id' => $chatId,
                 'text' => 'Введите запрос для поиска (На английском языке 😅)',
                 'reply_markup' => json_encode([
@@ -262,14 +259,14 @@ class Telegram
 
     private function collectionSearch($tgUserId, $chatId): array
     {
-        $apiKey = env('Search_Map_Key');
+        $tgUser = User::where('tg_id', "$tgUserId")->first();
 
-        $search = $this->getStageMessage($chatId, 'search');
-        $radius = $this->getStageMessage($chatId, 'radius');
-        $latitude = User::all()->where('tg_id', "$tgUserId")->value('latitude');
-        $longitude = User::all()->where('tg_id', "$tgUserId")->value('longitude');
+        $tomTomDto = new TomTomDTO();
+        $tomTomDto->setSearch($this->getStageMessage($chatId, 'search'));
+        $tomTomDto->setRadius($this->getStageMessage($chatId, 'radius'));
+        $tomTomDto->setLatitude($tgUser->latitude);
+        $tomTomDto->setLongitude($tgUser->longitude);
 
-        //TODO почитать как написать свой апи клиент для том том, посмотреть, что такое DTO (передача данных о поиске в функцию при помощи объекта)
-        return Http::get("https://api.tomtom.com/search/2/poiSearch/$search.json?key=$apiKey&relatedpois=all&radius=$radius&limit=15&openingHours=nextSevenDays&language=ru-RU&lat=$latitude&lon=$longitude&timezone=iana")->json();
+        return $this->tomTomApiClient->poiSearch($tomTomDto);
     }
 }
