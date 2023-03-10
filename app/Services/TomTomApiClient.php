@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\DTO\TomTomDTO;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class TomTomApiClient
 {
@@ -24,7 +25,7 @@ class TomTomApiClient
     public function poiSearch(TomTomDTO $tomTomDto): mixed
     {
         $queryString = sprintf(
-            '%s/search/%s%s/%s.json?key=%s&relatedpois=all&radius=%s&limit=%s&openingHours=nextSevenDays&language=ru-RU&lat=%s&lon=%s&timezone=iana',
+            '%s/search/%s%s/%s.json?key=%s&relatedpois=all&radius=%s&limit=%s&openingHours=nextSevenDays&view=RU&language=ru-RU&lat=%s&lon=%s&timezone=iana',
             self::BASE_URL,
             self::API_VERSION,
             self::POI_SEARCH_ENDPOINT,
